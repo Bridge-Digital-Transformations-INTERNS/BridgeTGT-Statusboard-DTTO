@@ -49,13 +49,18 @@ export function useSessionLifecycle() {
   };
 
   // Initialize session on mount
-  const initializeSession = async () => {
+  const initializeSession = () => {
     handlePageLoad();
 
     const sessionToken = localStorage.getItem("sessionToken");
     if (sessionToken) {
-      await sessionStore.validateSession();
-      sessionStore.startHeartbeat();
+      // Check if session is expired
+      if (sessionStore.isSessionExpired()) {
+        sessionStore.autoLogout();
+      } else {
+        // Start periodic session check
+        sessionStore.startSessionCheck();
+      }
     }
   };
 
@@ -75,13 +80,13 @@ export function useSessionLifecycle() {
 
   // Setup lifecycle hooks
   const setupLifecycle = () => {
-    onMounted(async () => {
-      await initializeSession();
+    onMounted(() => {
+      initializeSession();
       registerListeners();
     });
 
     onUnmounted(() => {
-      sessionStore.stopHeartbeat();
+      sessionStore.stopSessionCheck();
       unregisterListeners();
     });
   };

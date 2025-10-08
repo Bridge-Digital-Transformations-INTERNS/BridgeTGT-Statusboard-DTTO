@@ -3,11 +3,11 @@ import pool from "../config/db.js";
 export const getSessionByToken = async (session_token) => {
   const [rows] = await pool.query(
     `SELECT *, 
-     TIMESTAMPDIFF(SECOND, updated_at, UTC_TIMESTAMP()) as seconds_since_update 
+     TIMESTAMPDIFF(SECOND, created_at, UTC_TIMESTAMP()) as seconds_since_login 
      FROM auth_sessions 
      WHERE session_token = ? 
      AND is_authenticated = TRUE 
-     AND TIMESTAMPDIFF(SECOND, updated_at, UTC_TIMESTAMP()) < 7200`,
+     AND TIMESTAMPDIFF(SECOND, created_at, UTC_TIMESTAMP()) < 3600`,
     [session_token],
   );
   return rows[0] || null;
@@ -34,13 +34,13 @@ export const insertAuthSession = async ({
   return result.insertId;
 };
 
-// Clean up expired sessions (older than 2 hours of inactivity)
+// Clean up expired sessions (older than 1 hour from login)
 export const cleanupExpiredSessions = async () => {
   await pool.query(
     `UPDATE auth_sessions 
      SET is_authenticated = 0 
      WHERE is_authenticated = 1 
-     AND TIMESTAMPDIFF(SECOND, updated_at, UTC_TIMESTAMP()) >= 7200`,
+     AND TIMESTAMPDIFF(SECOND, created_at, UTC_TIMESTAMP()) >= 3600`,
   );
 };
 

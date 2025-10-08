@@ -20,32 +20,14 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
-    const originalRequest = error.config;
-    
-    // If 401 error (Unauthorized) and not already retried
-    if (error.response?.status === 401 && !originalRequest._retry) {
-      originalRequest._retry = true;
-      
+    // If 401 error (Unauthorized), auto-logout immediately
+    if (error.response?.status === 401) {
       // Import stores dynamically to avoid circular dependencies
       const { useSessionStore } = await import("@/stores/sessionStore");
       const sessionStore = useSessionStore();
       
-      // Try to validate session first before auto-logout
-      const isValid = await sessionStore.validateSession();
-      
-      if (!isValid) {
-        // Session is truly invalid, logout
-        await sessionStore.autoLogout();
-      } else {
-        // Session was valid, retry the original request
-        const token = localStorage.getItem("jwt_token");
-        const sessionToken = localStorage.getItem("sessionToken");
-        
-        if (token) originalRequest.headers.Authorization = `Bearer ${token}`;
-        if (sessionToken) originalRequest.headers["x-session-token"] = sessionToken;
-        
-        return api.request(originalRequest);
-      }
+      // Session is invalid, logout user
+      sessionStore.autoLogout();
     }
     
     return Promise.reject(error);

@@ -22,6 +22,12 @@ export const useAccessStore = defineStore("access", () => {
       }
       isAuthenticated.value = true;
       accessToken.value = token;
+      
+      // Start session check after successful login
+      const { useSessionStore } = await import("@/stores/sessionStore");
+      const sessionStore = useSessionStore();
+      sessionStore.startSessionCheck();
+      
       return true;
     } catch (error) {
       //HANDLE DUPLICATE LOGIN
@@ -40,42 +46,40 @@ export const useAccessStore = defineStore("access", () => {
   function logout() {
     localStorage.removeItem("jwt_token");
     localStorage.removeItem("sessionToken");
+    localStorage.removeItem("loginTime");
     isAuthenticated.value = false;
     accessToken.value = null;
     errorMessage.value = "";
   }
 
-  //FOR FETCHING ONLINE PURPOSES AND VALIDATE SESSION
-  async function initializeAuth() {
+  //FOR FETCHING ONLINE PURPOSES - Check if session exists and not expired
+  function initializeAuth() {
     const token = localStorage.getItem("jwt_token");
     const sessionToken = localStorage.getItem("sessionToken");
+    const loginTime = localStorage.getItem("loginTime");
     
-    if (token && sessionToken) {
-      try {
-        // Validate session with backend
-        const response = await api.post("/auth/validate-session", {
-          session_token: sessionToken
-        });
-        
-        if (response.data.valid) {
-          isAuthenticated.value = true;
-          accessToken.value = token;
-        } else {
-          // Session invalid, clear storage
-          localStorage.removeItem("jwt_token");
-          localStorage.removeItem("sessionToken");
-          isAuthenticated.value = false;
-          accessToken.value = null;
-        }
-      } catch (error) {
-        // Session validation failed
-        console.log('Session validation failed:', error);
+    if (token && sessionToken && loginTime) {
+      // Check if session expired (1 hour)
+      const now = Date.now();
+      const elapsed = now - parseInt(loginTime, 10);
+      const oneHour = 60 * 60 * 1000;
+      
+      if (elapsed < oneHour) {
+        // Session still valid
+        isAuthenticated.value = true;
+        accessToken.value = token;
+        return true;
+      } else {
+        // Session expired, clear storage
         localStorage.removeItem("jwt_token");
         localStorage.removeItem("sessionToken");
+        localStorage.removeItem("loginTime");
         isAuthenticated.value = false;
         accessToken.value = null;
+        return false;
       }
     } else if (token) {
+      // Legacy token without session
       isAuthenticated.value = true;
       accessToken.value = token;
       return true;

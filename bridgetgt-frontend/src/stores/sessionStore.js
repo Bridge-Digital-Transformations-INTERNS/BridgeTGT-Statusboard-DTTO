@@ -10,52 +10,42 @@ export const useSessionStore = defineStore("session", () => {
   const newOnlineUser = ref(null);
   const router = useRouter();
   const { showError } = useToastNotification();
-  let heartbeatInterval = null;
-  let lastActivityTime = Date.now();
-  let activityListenersAttached = false;
+  let sessionCheckInterval = null;
+  let loginTime = null;
 
-  //VALIDATE SESSION ON APP LOAD
-  async function validateSession() {
+  //CHECK IF SESSION IS EXPIRED (1 HOUR)
+  function isSessionExpired() {
     const sessionToken = localStorage.getItem("sessionToken");
-    if (!sessionToken) return false;
+    const storedLoginTime = localStorage.getItem("loginTime");
     
-    try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/auth/validate-session`, {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "x-session-token": sessionToken 
-        },
-      });
-      
-      if (!response.ok) {
-        // Only auto logout if status is 401 (unauthorized)
-        if (response.status === 401) {
-          await autoLogout();
-        }
-        return false;
-      }
-      
-      // Session is valid, update activity timestamp
-      lastActivityTime = Date.now();
-      
-      return true;
-    } catch (err) {
-      console.error("Session validation failed:", err);
-      // Don't auto logout on network errors, only on explicit 401
+    if (!sessionToken || !storedLoginTime) return true;
+    
+    const now = Date.now();
+    const elapsed = now - parseInt(storedLoginTime, 10);
+    const oneHour = 60 * 60 * 1000; // 1 hour in milliseconds
+    
+    return elapsed >= oneHour;
+  }
+
+  //VALIDATE SESSION - Check if 1 hour has passed
+  function validateSession() {
+    if (isSessionExpired()) {
+      autoLogout();
       return false;
     }
+    return true;
   }
   //AUTO LOGOUT WHEN SESSION IS INVALID
-  async function autoLogout() {
-    stopHeartbeat();
+  function autoLogout() {
+    stopSessionCheck();
     
     // Show session expiry notification
-    showError("Session Expired", "Session has expired due to inactivity.");
+    showError("Session Expired", "Your session has expired after 1 hour. Please login again.");
     
     // Clear local storage
     localStorage.removeItem("sessionToken");
     localStorage.removeItem("jwt_token");
+    localStorage.removeItem("loginTime");
     
     // Clear auth stores
     const accessStore = useAccessStore();
@@ -69,7 +59,7 @@ export const useSessionStore = defineStore("session", () => {
     }, 500);
   }
 
-  //FETCH ALL OL USERS
+  //FETCH ALL ONLINE USERS
   function fetchOnlineUsers() {
     fetch(`${import.meta.env.VITE_API_URL}/auth/sessions`)
       .then((res) => res.json())
@@ -95,92 +85,35 @@ export const useSessionStore = defineStore("session", () => {
       .catch(() => { onlineUsers.value = []; });
   }
 
-  //TRACK USER ACTIVITY
-  function trackActivity() {
-    lastActivityTime = Date.now();
-  }
-
-  //ATTACH ACTIVITY LISTENERS
-  function attachActivityListeners() {
-    if (activityListenersAttached) return;
+  //START SESSION CHECK - Check every minute if session expired
+  function startSessionCheck() {
+    if (sessionCheckInterval) {
+      clearInterval(sessionCheckInterval);
+    }
     
-    const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'];
-    events.forEach(event => {
-      document.addEventListener(event, trackActivity, { passive: true });
-    });
+    // Store login time
+    loginTime = Date.now();
+    localStorage.setItem("loginTime", loginTime.toString());
     
-    activityListenersAttached = true;
-  }
-
-  //REMOVE ACTIVITY LISTENERS
-  function removeActivityListeners() {
-    if (!activityListenersAttached) return;
-    
-    const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'];
-    events.forEach(event => {
-      document.removeEventListener(event, trackActivity);
-    });
-    
-    activityListenersAttached = false;
-  }
-
-  //SEND HEARTBEAT TO KEEP SESSION ALIVE 
-  async function sendHeartbeat() {
-    const sessionToken = localStorage.getItem("sessionToken");
-    if (!sessionToken) return;
-    // CHECK INACTIVITY PAG 30MINUTES
-    const timeSinceActivity = Date.now() - lastActivityTime;
-    const thirtyMinutes = 30 * 60 * 1000;
-    
-    if (timeSinceActivity < thirtyMinutes) {
-      try {
-        const response = await fetch(`${import.meta.env.VITE_API_URL}/auth/heartbeat`, {
-          method: "POST",
-          headers: { 
-            "Content-Type": "application/json",
-            "x-session-token": sessionToken 
-          },
-        });
-        // AUTO LOGOUT IF SESSION EXPIRED
-        if (!response.ok && response.status === 401) {
-          await autoLogout();
-        }
-      } catch (err) {
-        console.error("Heartbeat failed:", err);
+    // Check session expiry every minute
+    sessionCheckInterval = setInterval(() => {
+      if (isSessionExpired()) {
+        autoLogout();
       }
-    }
+    }, 60 * 1000); // Check every 1 minute
   }
 
-  //START HEARTBEAT INTERVAL
-  function startHeartbeat() {
-    if (heartbeatInterval) {
-      clearInterval(heartbeatInterval);
+  //STOP SESSION CHECK
+  function stopSessionCheck() {
+    if (sessionCheckInterval) {
+      clearInterval(sessionCheckInterval);
+      sessionCheckInterval = null;
     }
-    
-    // Attach activity listeners
-    attachActivityListeners();
-    
-    // Send initial heartbeat
-    sendHeartbeat();
-    
-    // Check and send heartbeat every 5 minutes
-    heartbeatInterval = setInterval(() => {
-      sendHeartbeat();
-    }, 5 * 60 * 1000); 
-  }
-
-  //STOP HEARTBEAT
-  function stopHeartbeat() {
-    if (heartbeatInterval) {
-      clearInterval(heartbeatInterval);
-      heartbeatInterval = null;
-    }
-    removeActivityListeners();
   }
 
   //LOGOUT
   async function logout() {
-    stopHeartbeat();
+    stopSessionCheck();
     
     try {
       // Attempt to notify backend of logout
@@ -194,6 +127,7 @@ export const useSessionStore = defineStore("session", () => {
       // Always clear local state regardless of API call success
       localStorage.removeItem("sessionToken");
       localStorage.removeItem("jwt_token");
+      localStorage.removeItem("loginTime");
       
       const accessStore = useAccessStore();
       const githubAuthStore = useGitHubAuthStore();
@@ -212,7 +146,7 @@ export const useSessionStore = defineStore("session", () => {
     }
   }
 
-  //FALSE TOAST 
+  //CLEAR NEW ONLINE USER NOTIFICATION
   function clearNewOnlineUser() {
     newOnlineUser.value = null;
   }
@@ -222,11 +156,11 @@ export const useSessionStore = defineStore("session", () => {
     newOnlineUser,
     fetchOnlineUsers, 
     logout, 
-    startHeartbeat, 
-    stopHeartbeat,
-    sendHeartbeat,
+    startSessionCheck, 
+    stopSessionCheck,
     clearNewOnlineUser,
     validateSession,
-    autoLogout
+    autoLogout,
+    isSessionExpired
   };
 });

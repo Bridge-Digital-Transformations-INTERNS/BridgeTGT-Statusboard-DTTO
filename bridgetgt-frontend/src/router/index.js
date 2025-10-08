@@ -68,16 +68,16 @@ router.beforeEach(async (to, from, next) => {
   const isAuthenticated = hasLegacyAuth || isOrgDeveloper;
   const requiresAuth = to.meta.requiresAuth !== false;
   
-  // Validate session if trying to access protected route
+  // Check session expiry on frontend (1 hour check)
   if (requiresAuth && isAuthenticated) {
     const sessionToken = localStorage.getItem("sessionToken");
     if (sessionToken) {
       const { useSessionStore } = await import('@/stores/sessionStore');
       const sessionStore = useSessionStore();
       
-      // Validate session - if invalid, it will auto-logout
-      const isValid = await sessionStore.validateSession();
-      if (!isValid) {
+      // Check if session expired (1 hour)
+      if (sessionStore.isSessionExpired()) {
+        sessionStore.autoLogout();
         return next("/login");
       }
     }

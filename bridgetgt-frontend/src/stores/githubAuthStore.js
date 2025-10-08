@@ -94,10 +94,10 @@ export const useGitHubAuthStore = defineStore("githubAuth", () => {
         role: response.data.role || 'user',
       };
 
-      // Start heartbeat after successful login
+      // Start session check after successful login
       const { useSessionStore } = await import("@/stores/sessionStore");
       const sessionStore = useSessionStore();
-      sessionStore.startHeartbeat();
+      sessionStore.startSessionCheck();
 
       return true;
     } catch (err) {

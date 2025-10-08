@@ -4,7 +4,7 @@ import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 dotenv.config();
 import axios from "axios";
-import { insertAuthSession, cleanupExpiredSessions, updateSessionActivity, hasActiveSession, getSessionByToken } from "../models/authSessionsModel.js";
+import { insertAuthSession, cleanupExpiredSessions, hasActiveSession, getSessionByToken } from "../models/authSessionsModel.js";
 const router = express.Router();
 
 
@@ -32,7 +32,8 @@ router.get("/sessions", async (req, res) => {
   res.json(rows);
 });
 
-// VALIDATE SESSION - Check if session is still valid
+// VALIDATE SESSION - Check if session exists (1 hour from login)
+// Note: Session expiry is now primarily handled on frontend
 router.post("/validate-session", async (req, res) => {
   const token = req.headers["x-session-token"] || req.body.session_token;
   if (!token) {
@@ -45,31 +46,9 @@ router.post("/validate-session", async (req, res) => {
       return res.status(401).json({ error: "Invalid or expired session" });
     }
     
-    // Update session activity on validation (important for page refreshes)
-    await updateSessionActivity(token);
-    
     res.json({ valid: true, session });
   } catch (err) {
     res.status(500).json({ error: "Failed to validate session" });
-  }
-});
-
-// HEARTBEAT - Keep session alive
-router.post("/heartbeat", async (req, res) => {
-  const token = req.headers["x-session-token"] || req.body.session_token;
-  if (!token) {
-    return res.status(401).json({ error: "Session token required" });
-  }
-  
-  try {
-    const session = await getSessionByToken(token);
-    if (!session) {
-      return res.status(401).json({ error: "Invalid or expired session" });
-    }
-    await updateSessionActivity(token);
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: "Failed to update session" });
   }
 });
 

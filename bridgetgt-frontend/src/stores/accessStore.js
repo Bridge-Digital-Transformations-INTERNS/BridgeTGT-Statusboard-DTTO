@@ -39,15 +39,43 @@ export const useAccessStore = defineStore("access", () => {
   //LOGOUT UNYA I SET AND IS_AUTH = FALSE PARA DLI MA COUNT AS ONLINE
   function logout() {
     localStorage.removeItem("jwt_token");
+    localStorage.removeItem("sessionToken");
     isAuthenticated.value = false;
     accessToken.value = null;
     errorMessage.value = "";
   }
 
-  //FOR FETCHING ONLINE PURPOSES
-  function initializeAuth() {
+  //FOR FETCHING ONLINE PURPOSES AND VALIDATE SESSION
+  async function initializeAuth() {
     const token = localStorage.getItem("jwt_token");
-    if (token) {
+    const sessionToken = localStorage.getItem("sessionToken");
+    
+    if (token && sessionToken) {
+      try {
+        // Validate session with backend
+        const response = await api.post("/auth/validate-session", {
+          session_token: sessionToken
+        });
+        
+        if (response.data.valid) {
+          isAuthenticated.value = true;
+          accessToken.value = token;
+        } else {
+          // Session invalid, clear storage
+          localStorage.removeItem("jwt_token");
+          localStorage.removeItem("sessionToken");
+          isAuthenticated.value = false;
+          accessToken.value = null;
+        }
+      } catch (error) {
+        // Session validation failed
+        console.log('Session validation failed:', error);
+        localStorage.removeItem("jwt_token");
+        localStorage.removeItem("sessionToken");
+        isAuthenticated.value = false;
+        accessToken.value = null;
+      }
+    } else if (token) {
       isAuthenticated.value = true;
       accessToken.value = token;
       return true;

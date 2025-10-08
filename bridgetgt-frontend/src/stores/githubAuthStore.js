@@ -15,6 +15,9 @@ export const useGitHubAuthStore = defineStore("githubAuth", () => {
   function signOut() {
     user.value = null;
     localStorage.removeItem("jwt_token");
+    localStorage.removeItem("sessionToken");
+    error.value = "";
+    loading.value = false;
   }
 
   // JWT DECODER
@@ -27,20 +30,39 @@ export const useGitHubAuthStore = defineStore("githubAuth", () => {
     }
   }
 
-  // Rehydrate user from JWT in localStorage on store creation
-  function initializeGitHubAuth() {
+  // Rehydrate user from localStorage and validate session
+  async function initializeGitHubAuth() {
     const token = localStorage.getItem("jwt_token");
-    if (token) {
-      const payload = decodeJWT(token);
-      // Check if payload has GitHub info
-      if (payload && payload.github_login) {
-        user.value = {
-          github_id: payload.github_id,
-          github_login: payload.github_login,
-          name: payload.name,
-          avatar_url: payload.avatar_url,
-          role: payload.role,
-        };
+    const sessionToken = localStorage.getItem("sessionToken");
+    
+    if (token && sessionToken) {
+      try {
+        // Validate session with backend
+        const response = await api.post("/auth/validate-session", {
+          session_token: sessionToken
+        });
+        
+        if (response.data.valid && response.data.session) {
+          user.value = {
+            github_id: response.data.session.github_id,
+            github_login: response.data.session.username,
+            username: response.data.session.username,
+            name: response.data.session.name,
+            avatar_url: response.data.session.avatar_url,
+            role: response.data.session.account_type === 'admin' ? 'admin' : 'user',
+          };
+        } else {
+          // Session invalid, clear storage
+          localStorage.removeItem("jwt_token");
+          localStorage.removeItem("sessionToken");
+          user.value = null;
+        }
+      } catch (error) {
+        // Session validation failed, clear storage
+        console.log('Session validation failed:', error);
+        localStorage.removeItem("jwt_token");
+        localStorage.removeItem("sessionToken");
+        user.value = null;
       }
     }
   }
@@ -53,6 +75,8 @@ export const useGitHubAuthStore = defineStore("githubAuth", () => {
     error.value = "";
     try {
       const response = await api.get(`/auth/github/exchange?code=${code}`);
+      
+      // Store tokens
       const token = response.data.token;
       const sessionToken = response.data.session_token;
       localStorage.setItem("jwt_token", token);
@@ -60,25 +84,15 @@ export const useGitHubAuthStore = defineStore("githubAuth", () => {
         localStorage.setItem("sessionToken", sessionToken);
       }
 
-      // Decode payload → set user
-      const payload = decodeJWT(token);
-      if (payload && payload.github_login) {
-        user.value = {
-          github_id: payload.github_id,
-          github_login: payload.github_login,
-          name: payload.name,
-          avatar_url: payload.avatar_url,
-          role: payload.role,
-        };
-      } else {
-        user.value = {
-          github_id: response.data.github_id,
-          github_login: response.data.github_login,
-          name: response.data.name,
-          avatar_url: response.data.avatar_url,
-          role: response.data.role,
-        };
-      }
+      // Use response data directly (Laravel returns user info)
+      user.value = {
+        github_id: response.data.github_id,
+        github_login: response.data.github_login,
+        username: response.data.username || response.data.github_login,
+        name: response.data.name,
+        avatar_url: response.data.avatar_url,
+        role: response.data.role || 'user',
+      };
 
       // Start heartbeat after successful login
       const { useSessionStore } = await import("@/stores/sessionStore");

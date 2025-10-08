@@ -179,21 +179,37 @@ export const useSessionStore = defineStore("session", () => {
   }
 
   //LOGOUT
-  function logout() {
+  async function logout() {
     stopHeartbeat();
     
-    fetch(`${import.meta.env.VITE_API_URL}/auth/logout`, {
-      method: "POST",
-      headers: { "x-session-token": localStorage.getItem("sessionToken") },
-    }).finally(() => {
+    try {
+      // Attempt to notify backend of logout
+      await fetch(`${import.meta.env.VITE_API_URL}/auth/logout`, {
+        method: "POST",
+        headers: { "x-session-token": localStorage.getItem("sessionToken") },
+      });
+    } catch (error) {
+      console.log('Logout API call failed:', error);
+    } finally {
+      // Always clear local state regardless of API call success
       localStorage.removeItem("sessionToken");
       localStorage.removeItem("jwt_token");
+      
       const accessStore = useAccessStore();
       const githubAuthStore = useGitHubAuthStore();
       accessStore.logout();
       githubAuthStore.signOut();
-      router.push("/login");
-    });
+      
+      // Clear online users
+      onlineUsers.value = [];
+      newOnlineUser.value = null;
+      
+      // Navigate to login page
+      await router.push("/login");
+      
+      // Force page reload to clear all state
+      window.location.reload();
+    }
   }
 
   //FALSE TOAST 

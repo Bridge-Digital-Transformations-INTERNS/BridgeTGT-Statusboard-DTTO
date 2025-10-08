@@ -1,0 +1,71 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    ports:
+      - "0.0.0.0:${PORT}:${PORT}"
+    env_file:
+      - .env
+    environment:
+      - TZ=UTC
+    networks:
+      - bridge-network
+    depends_on:
+      - db
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "0.0.0.0:${FRONTEND_PORT:-10000}:80"
+    env_file:
+      - .env
+    networks:
+      - bridge-network
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  db:
+    image: mysql:8.3
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASS}
+      TZ: UTC
+    command: --default-time-zone='+00:00'
+    ports:
+      - "0.0.0.0:3307:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+    networks:
+      - bridge-network
+    restart: unless-stopped
+
+  phpmyadmin:
+    image: phpmyadmin:latest
+    environment:
+      PMA_HOST: db
+      PMA_PORT: 3306
+      PMA_USER: ${DB_USER}
+      PMA_PASSWORD: ${DB_PASS}  
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      UPLOAD_LIMIT: 100M
+    ports:
+      - "0.0.0.0:${PHPMYADMIN_PORT:-8080}:80"
+    networks:
+      - bridge-network
+    depends_on:
+      - db
+    restart: unless-stopped
+
+volumes:
+  db_data:
+
+networks:
+  bridge-network:
+    driver: bridge

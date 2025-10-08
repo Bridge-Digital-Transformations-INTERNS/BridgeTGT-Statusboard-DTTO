@@ -1,0 +1,199 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+@layer base {
+  :root {
+    --font-albert: "Albert Sans", sans-serif;
+    --font-fkmono: "FK Grotesk Mono", monospace;
+    --font-serif36: "Source Serif 36", serif;
+    --font-serif48i: "Source Serif 48 Italic", serif;
+
+    /* Brand Colors */
+    --color-lime: #e3ea4e;
+    --color-palm: #349083;
+    --color-sticky: #2b2a2a;
+    --color-powder: #a8bfd3;
+    --color-cream: #fff4de;
+    --color-cacao: #352623;
+    --progress-gradient-start: #e3ea4e;
+    --progress-gradient-end: #349083;
+
+    /* Status Colors for dropdowns  */
+    --status-pending-text: #e67a3f;
+    --status-pending-border: #e67a3f;
+
+    --status-inprogress-text: #6faed9;
+    --status-inprogress-border: #6faed9;
+
+    --status-completed-text: #2f4c91;
+    --status-completed-border: #2f4c91;
+
+    --status-validated-text: #5b3c88;
+    --status-validated-border: #5b3c88;
+
+    /* Category Colors*/
+    --category-light-bg: theme("colors.amber.50");
+    --category-light-text: theme("colors.amber.600");
+    --category-light-border: theme("colors.amber.600");
+
+    --category-medium-bg: theme("colors.orange.50");
+    --category-medium-text: theme("colors.orange.600");
+    --category-medium-border: theme("colors.orange.600");
+
+    --category-heavy-bg: theme("colors.red.50");
+    --category-heavy-text: theme("colors.red.600");
+    --category-heavy-border: theme("colors.red.600");
+    --p-toast-border-width: "10px";
+  }
+
+  html,
+  body,
+  #app {
+    height: 100%;
+    font-family: var(--font-albert);
+  }
+  /* Toast container (optional, controls whole group) */
+}
+
+:root {
+  --radius: 0.625rem;
+}
+
+@layer base {
+  * {
+    @apply outline-slate-400/50;
+  }
+
+  body {
+    @apply bg-white text-slate-900;
+  }
+
+  /* Custom scrollbar styling to match page background */
+  /* ::-webkit-scrollbar {
+    width: 12px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: linear-gradient(180deg, #f7f9fb 0%, #ffffff 100%);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 6px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+    background-clip: content-box;
+  } */
+
+  /* Firefox scrollbar styling */
+  html,
+  div {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-powder) var(--color-white);
+  }
+}
+
+/* Common transition classes for reusability */
+@layer components {
+  /* Standard dropdown transition */
+  .dropdown-enter-active {
+    @apply transition duration-200 ease-out;
+  }
+  .dropdown-enter-from {
+    @apply transform scale-95 opacity-0;
+  }
+  .dropdown-enter-to {
+    @apply transform scale-100 opacity-100;
+  }
+  .dropdown-leave-active {
+    @apply transition duration-150 ease-in;
+  }
+  .dropdown-leave-from {
+    @apply transform scale-100 opacity-100;
+  }
+  .dropdown-leave-to {
+    @apply transform scale-95 opacity-0;
+  }
+}
+/* FOR PROGRESS OVER VIEW NA TRNASITION EFFECT */
+.fade-scale-enter-active,
+.fade-scale-leave-active {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.fade-scale-enter-from {
+  opacity: 0;
+  transform: scale(0.95);
+}
+
+.fade-scale-leave-to {
+  opacity: 0;
+  transform: scale(1.05);
+}
+
+.slide-up-enter-active,
+.slide-up-leave-active {
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.slide-up-enter-from {
+  opacity: 0;
+  transform: translateY(20px);
+}
+
+.slide-up-leave-to {
+  opacity: 0;
+  transform: translateY(-20px);
+}
+
+.list-fade-move,
+.list-fade-enter-active,
+.list-fade-leave-active {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.list-fade-enter-from,
+.list-fade-leave-to {
+  opacity: 0;
+  transform: translateX(30px);
+}
+
+.list-fade-leave-active {
+  position: absolute;
+}
+
+.fullscreen-mode {
+  display: flex;
+  flex-direction: column;
+  max-height: 100vh;
+}
+
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.overflow-y-auto::-webkit-scrollbar {
+  width: 8px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 4px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}

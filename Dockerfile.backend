@@ -1,0 +1,11 @@
+FROM node:24-alpine AS builder
+
+WORKDIR /app
+
+COPY bridgetgt-backend-express/package*.json ./
+RUN npm install
+
+COPY bridgetgt-backend-express/ .
+
+EXPOSE ${PORT}
+CMD ["node", "src/app.js"]

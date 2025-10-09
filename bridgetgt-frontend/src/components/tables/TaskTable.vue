@@ -294,7 +294,6 @@ const { taskModal: editModal, deleteConfirm } = useModalManager([
 
 onMounted(async () => {
   await developerStore.fetchDevelopers();
-  taskStore.initSocketListeners();
   taskStore.fetchTasks();
 });
 

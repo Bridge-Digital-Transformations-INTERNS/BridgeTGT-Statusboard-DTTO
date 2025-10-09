@@ -50,7 +50,21 @@ export function useActivityLogFilters() {
   });
 
   function generateActivityMessage(log) {
-    const details = log.details ? JSON.parse(log.details) : {};
+    // Handle details: it could be a string (needs parsing) or already an object
+    let details = {};
+    if (log.details) {
+      if (typeof log.details === 'string') {
+        try {
+          details = JSON.parse(log.details);
+        } catch (e) {
+          console.warn('Failed to parse log details:', log.details);
+          details = {};
+        }
+      } else if (typeof log.details === 'object') {
+        details = log.details;
+      }
+    }
+    
     const entityName = getEntityDisplayName(log.entity);
     switch (log.action) {
       case "create":

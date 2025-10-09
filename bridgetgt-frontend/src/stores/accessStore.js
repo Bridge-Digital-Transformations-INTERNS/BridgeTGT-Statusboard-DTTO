@@ -20,6 +20,9 @@ export const useAccessStore = defineStore("access", () => {
       if (sessionToken) {
         localStorage.setItem("sessionToken", sessionToken);
       }
+      // Set login time for session expiry tracking
+      localStorage.setItem("loginTime", Date.now().toString());
+      
       isAuthenticated.value = true;
       accessToken.value = token;
       

@@ -91,14 +91,13 @@ export function useGanttActions(ganttStore, taskStore, projectStore, modals) {
       
       if (modals.taskModal.isEdit && modals.taskModal.data) {
         await taskStore.updateTaskWithAssignees(modals.taskModal.data.id, taskWithProject);
+        showSuccess('Task Updated', 'Task has been updated successfully.');
       } else {
         await taskStore.addTask(taskWithProject);
+        showSuccess('Task Created', 'Task has been created successfully.');
       }
       
-      const projectId = selectedProjectId || projectStore.selectedProjectId;
-      if (projectId) {
-        await ganttStore.fetchTasksByProject(projectId);
-      }
+      // Don't refetch - Reverb will update the store automatically
       
       if (callback) callback();
     } catch (error) {

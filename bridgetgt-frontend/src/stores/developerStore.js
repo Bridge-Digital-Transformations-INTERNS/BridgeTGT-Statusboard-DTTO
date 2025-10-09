@@ -3,7 +3,7 @@ import api from "@/utils/api";
 import { ref, computed } from "vue";
 import { AVAILABLE_ROLES, AVAILABLE_COLORS } from "@/constants/common";
 import { getInitials } from "@/utils/ui";
-import socket from "@/utils/socket";
+import echo from "@/utils/reverb";
 import { onMounted } from "vue";
 
 export const useDeveloperStore = defineStore("developer", () => {
@@ -11,6 +11,7 @@ export const useDeveloperStore = defineStore("developer", () => {
   const availableRoles = ref([...AVAILABLE_ROLES]);
   const availableColors = ref([...AVAILABLE_COLORS]);
   const loading = ref(false);
+  const isDataLoaded = ref(false); // Track if data has been loaded
   const developerOptions = computed(() =>
     developers.value.map((dev) => ({
       value: dev.id,
@@ -20,47 +21,48 @@ export const useDeveloperStore = defineStore("developer", () => {
     })),
   );
 
-  //SOCKET
-  function initSocketListeners() {
-    socket.on("developer:created", (task) => {
-      developers.value.push(task);
-    });
-
-    socket.on("developer:updated", (updated) => {
-      const idx = developers.value.findIndex((t) => t.id === updated.id);
-      if (idx !== -1) developers.value[idx] = { ...developers.value[idx], ...updated };
-    });
-
-    socket.on("developer:deleted", ({ id }) => {
-      developers.value = developers.value.filter((t) => t.id !== id);
-    });
-    socket.on("developer:roleAssigned", ({ developer_id, role_name }) => {
-      const dev = developers.value.find((d) => d.id === developer_id);
-      if (dev) {
-        if (!dev.roles) dev.roles = [];
-        if (!dev.roles.includes(role_name)) {
-          dev.roles.push(role_name);
+  //REVERB
+  function initReverbListeners() {
+    echo.channel('developers')
+      .listen('.developer.created', (event) => {
+        console.log('[DeveloperStore] Developer created event:', event);
+        const exists = developers.value.some((d) => d.id === event.developer.id);
+        if (!exists) {
+          developers.value = [...developers.value, event.developer];
         }
-      }
-    });
-
-    socket.on("developer:roleRemoved", ({ developer_id, role_name }) => {
-      const dev = developers.value.find((d) => d.id === developer_id);
-      if (dev && dev.roles) {
-        dev.roles = dev.roles.filter((r) => r !== role_name);
-      }
-    });
+      })
+      .listen('.developer.updated', (event) => {
+        console.log('[DeveloperStore] Developer updated event:', event);
+        const idx = developers.value.findIndex((t) => t.id === event.developer.id);
+        if (idx !== -1) {
+          developers.value[idx] = { ...developers.value[idx], ...event.developer };
+          developers.value = [...developers.value];
+        }
+      })
+      .listen('.developer.deleted', (event) => {
+        console.log('[DeveloperStore] Developer deleted event:', event);
+        developers.value = developers.value.filter((t) => t.id !== event.id);
+      })
+      .listen('.developer.roleAssigned', (event) => {
+        console.log('[DeveloperStore] Role assigned event:', event);
+        const dev = developers.value.find((d) => d.id === event.developer_id);
+        if (dev) {
+          if (!dev.roles) dev.roles = [];
+          if (!dev.roles.includes(event.role_name)) {
+            dev.roles = [...dev.roles, event.role_name];
+          }
+        }
+      })
+      .listen('.developer.roleRemoved', (event) => {
+        console.log('[DeveloperStore] Role removed event:', event);
+        const dev = developers.value.find((d) => d.id === event.developer_id);
+        if (dev && dev.roles) {
+          dev.roles = dev.roles.filter((r) => r !== event.role_name);
+        }
+      });
   }
-  //INIT SOCKET IF GAMITON ANG STORE
-  onMounted(() => {
-    initSocketListeners();
-  });
-  // onUnmounted(() => {
-  //   socket.off("developer:created");
-  //   socket.off("developer:updated");
-  //   socket.off("developer:deleted");
-
-  // });
+  //INIT REVERB IF GAMITON ANG STORE
+  initReverbListeners();
 
   const pagination = ref({
     page: 1,
@@ -69,13 +71,20 @@ export const useDeveloperStore = defineStore("developer", () => {
     totalPages: 0,
   });
 
-  // FETCH ALL DEVELOPERS (without backend pagination for proper client-side filtering)
-  async function fetchDevelopers(page = 1, pageSize = 10) {
+  // FETCH ALL DEVELOPERS - only fetch if not already loaded
+  async function fetchDevelopers(page = 1, pageSize = 10, force = false) {
+    if (isDataLoaded.value && !force) {
+      console.log('[DeveloperStore] Developers already loaded, skipping fetch');
+      return;
+    }
+    
     loading.value = true;
     try {
-      // Fetch all developers with a large limit
+      // Fetch all developers with roles in ONE request (optimized!)
       const response = await api.get(`/developers?page=1&pageSize=10000`);
+      // Backend now returns developers with roles already included
       developers.value = response.data.data;
+      isDataLoaded.value = true;
 
       // Update pagination
       pagination.value.page = page;
@@ -83,16 +92,8 @@ export const useDeveloperStore = defineStore("developer", () => {
       pagination.value.total = developers.value.length;
       pagination.value.totalPages = Math.ceil(developers.value.length / pageSize);
 
-      await Promise.all(
-        developers.value.map(async (dev) => {
-          try {
-            const rolesRes = await api.get(`/developer-roles/${dev.id}`);
-            dev.roles = Array.isArray(rolesRes.data) ? rolesRes.data.map((r) => r.name || r) : [];
-          } catch {
-            dev.roles = [];
-          }
-        })
-      );
+      // No need for individual API calls - roles are already included!
+      // Each developer.roles is already an array of role names
     } finally {
       loading.value = false;
     }

@@ -91,9 +91,14 @@ export const useSessionStore = defineStore("session", () => {
       clearInterval(sessionCheckInterval);
     }
     
-    // Store login time
-    loginTime = Date.now();
-    localStorage.setItem("loginTime", loginTime.toString());
+    // Store login time only if not already set (preserve across page refreshes)
+    const existingLoginTime = localStorage.getItem("loginTime");
+    if (!existingLoginTime) {
+      loginTime = Date.now();
+      localStorage.setItem("loginTime", loginTime.toString());
+    } else {
+      loginTime = parseInt(existingLoginTime, 10);
+    }
     
     // Check session expiry every minute
     sessionCheckInterval = setInterval(() => {

@@ -1,12 +1,13 @@
 import { defineStore } from "pinia";
 import api from "@/utils/api";
 import { ref, computed } from "vue";
-import socket from "@/utils/socket";
+import echo from "@/utils/reverb";
 
 export const useProjectStore = defineStore("project", () => {
   const projects = ref([]);
   const selectedProjectId = ref(1);
   const loading = ref(false);
+  const isDataLoaded = ref(false); // Track if data has been loaded
   
   function setSelectedProject(id) {
     selectedProjectId.value = id;
@@ -20,45 +21,54 @@ export const useProjectStore = defineStore("project", () => {
     }
   }
 
-  //SOCKET
-  function initSocketListeners() {
-    socket.on("project:created", (project) => {
-      const exists = projects.value.some((p) => p.id === project.id);
-      if (!exists) {
-        projects.value.push(project);
-      }
-    });
-
-    socket.on("project:updated", (updated) => {
-      const idx = projects.value.findIndex((t) => t.id === updated.id);
-      if (idx !== -1) projects.value[idx] = { ...projects.value[idx], ...updated };
-    });
-
-    socket.on("project:deleted", ({ id }) => {
-      projects.value = projects.value.filter((t) => t.id !== id);
-    });
+  //REVERB
+  function initReverbListeners() {
+    echo.channel('projects')
+      .listen('.project.created', (event) => {
+        console.log('[ProjectStore] Project created event:', event);
+        const exists = projects.value.some((p) => p.id === event.project.id);
+        if (!exists) {
+          projects.value = [...projects.value, event.project];
+        }
+      })
+      .listen('.project.updated', (event) => {
+        console.log('[ProjectStore] Project updated event:', event);
+        const idx = projects.value.findIndex((t) => t.id === event.project.id);
+        if (idx !== -1) {
+          projects.value[idx] = { ...projects.value[idx], ...event.project };
+          projects.value = [...projects.value];
+        }
+      })
+      .listen('.project.deleted', (event) => {
+        console.log('[ProjectStore] Project deleted event:', event);
+        projects.value = projects.value.filter((t) => t.id !== event.id);
+      });
   }
 
-  function removeSocketListeners() {
-    socket.off("project:created");
-    socket.off("project:updated");
-    socket.off("project:deleted");
+  function removeReverbListeners() {
+    echo.leave('projects');
   }
 
-  initSocketListeners();
+  initReverbListeners();
 
   if (import.meta.hot) {
     import.meta.hot.accept(() => {
-      removeSocketListeners();
+      removeReverbListeners();
     });
   }
 
-  // FETCH PROJECTS
-  async function fetchProjects() {
+  // FETCH PROJECTS - only fetch if not already loaded
+  async function fetchProjects(force = false) {
+    if (isDataLoaded.value && !force) {
+      console.log('[ProjectStore] Projects already loaded, skipping fetch');
+      return;
+    }
+    
     loading.value = true;
     try {
       const response = await api.get("/projects");
       projects.value = response.data;
+      isDataLoaded.value = true;
     } finally {
       loading.value = false;
     }

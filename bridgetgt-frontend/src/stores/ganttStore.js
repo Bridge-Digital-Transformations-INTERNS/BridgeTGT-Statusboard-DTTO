@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import api from '@/utils/api';
-import socket from '@/utils/socket';
+import echo from '@/utils/reverb';
 import { generateRandomTaskColor } from '@/utils/ganttColors';
 import { formatDateForAPI } from '@/utils/ganttDates';
 
@@ -18,6 +18,8 @@ export const useGanttStore = defineStore('gantt', () => {
   const lastChangeTime = ref(null);
   const autoSaveTimer = ref(null);
   const isSaving = ref(false);
+  const isDataLoaded = ref(false); // Track if data has been loaded
+  const lastFetchedProjectId = ref(null); // Track which project was last fetched
   let onAutoSaveCallback = null;
   
   const tasksByPhase = computed(() => {
@@ -31,9 +33,84 @@ export const useGanttStore = defineStore('gantt', () => {
     });
     return grouped;
   });
+
+  // REVERB listeners for real-time updates
+  function initReverbListeners() {
+    echo.channel('tasks')
+      .listen('.task.created', (event) => {
+        console.log('[GanttStore] Task created event:', event.task);
+        // Only add if task doesn't exist and belongs to selected project
+        if (selectedProjectId.value && event.task.project_id === selectedProjectId.value) {
+          if (!tasks.value.some(t => t.id === event.task.id)) {
+            tasks.value = [...tasks.value, {
+              ...event.task,
+              color: event.task.color || generateRandomTaskColor(),
+              assignees: event.task.assignees || []
+            }];
+          }
+        }
+      })
+      .listen('.task.updated', (event) => {
+        console.log('[GanttStore] Task updated event:', event.task);
+        const idx = tasks.value.findIndex(t => t.id === event.task.id);
+        if (idx !== -1) {
+          // Update the task while preserving color
+          tasks.value[idx] = {
+            ...tasks.value[idx],
+            ...event.task,
+            color: event.task.color || tasks.value[idx].color,
+            assignees: event.task.assignees || []
+          };
+          tasks.value = [...tasks.value];
+          
+          // Remove from pending changes if it exists
+          pendingChanges.value.delete(event.task.id);
+        }
+      })
+      .listen('.task.deleted', (event) => {
+        console.log('[GanttStore] Task deleted event:', event.id);
+        tasks.value = tasks.value.filter(t => t.id !== event.id);
+        pendingChanges.value.delete(event.id);
+      })
+      .listen('.taskAssignee.added', (event) => {
+        console.log('[GanttStore] Task assignee added event:', event);
+        const idx = tasks.value.findIndex(t => t.id === event.task_id);
+        if (idx !== -1) {
+          const task = tasks.value[idx];
+          if (!task.assignees) task.assignees = [];
+          // Find developer info from event
+          if (event.developer && !task.assignees.some(a => a.id === event.developer.id)) {
+            task.assignees = [...task.assignees, event.developer];
+            tasks.value = [...tasks.value];
+          }
+        }
+      })
+      .listen('.taskAssignee.removed', (event) => {
+        console.log('[GanttStore] Task assignee removed event:', event);
+        const idx = tasks.value.findIndex(t => t.id === event.task_id);
+        if (idx !== -1) {
+          const task = tasks.value[idx];
+          if (task.assignees) {
+            task.assignees = task.assignees.filter(a => a.id !== event.developer_id);
+            tasks.value = [...tasks.value];
+          }
+        }
+      });
+  }
+
+  // Initialize Reverb listeners
+  initReverbListeners();
   
-  //FETCH 
-  async function fetchTasksByProject(projectId) {
+  //FETCH - only fetch if needed
+  async function fetchTasksByProject(projectId, force = false) {
+    // Skip if already loaded for this project and not forced
+    if (isDataLoaded.value && 
+        lastFetchedProjectId.value === projectId && 
+        !force) {
+      console.log('[GanttStore] Tasks already loaded for project', projectId);
+      return;
+    }
+    
     loading.value = true;
     try {
       const sessionToken = localStorage.getItem('sessionToken');
@@ -51,6 +128,8 @@ export const useGanttStore = defineStore('gantt', () => {
       
       selectedProjectId.value = projectId;
       pendingChanges.value.clear();
+      isDataLoaded.value = true;
+      lastFetchedProjectId.value = projectId;
       
       // Initialize expanded phases with all phases
       const phases = [...new Set(tasks.value.map(t => t.phase || 'Unassigned'))];
@@ -307,82 +386,74 @@ export const useGanttStore = defineStore('gantt', () => {
     expandedPhases.value.clear();
   }
   
-  // Socket listeners
-  function initSocketListeners() {
-    socket.off('task:created');
-    socket.off('task:updated');
-    socket.off('task:deleted');
-    socket.off('taskAssignee:added');
-    socket.off('taskAssignee:removed');
-    
-    socket.on('task:created', (task) => {
-      console.log('[Gantt] Socket: task:created', task);
-      if (selectedProjectId.value && task.project_id === selectedProjectId.value) {
-        if (!tasks.value.some(t => t.id === task.id)) {
-          tasks.value.push({ 
-            ...task, 
-            color: task.color || generateRandomTaskColor(),
-            assignees: Array.isArray(task.assignees) ? task.assignees : []
-          });
+  // Reverb listeners
+  function initReverbListeners() {
+    echo.channel('tasks')
+      .listen('.task.created', (event) => {
+        console.log('[Gantt] Reverb: task.created', event.task);
+        if (selectedProjectId.value && event.task.project_id === selectedProjectId.value) {
+          if (!tasks.value.some(t => t.id === event.task.id)) {
+            tasks.value.push({ 
+              ...event.task, 
+              color: event.task.color || generateRandomTaskColor(),
+              assignees: Array.isArray(event.task.assignees) ? event.task.assignees : []
+            });
+          }
         }
-      }
-    });
-    
-    socket.on('task:updated', (updated) => {
-      console.log('[Gantt] Socket: task:updated', updated);
-      const index = tasks.value.findIndex(t => t.id === updated.id);
-      if (index !== -1) {
-        if (!pendingChanges.value.has(updated.id)) {
-          tasks.value[index] = { ...tasks.value[index], ...updated };
+      })
+      .listen('.task.updated', (event) => {
+        console.log('[Gantt] Reverb: task.updated', event.task);
+        const index = tasks.value.findIndex(t => t.id === event.task.id);
+        if (index !== -1) {
+          if (!pendingChanges.value.has(event.task.id)) {
+            tasks.value[index] = { ...tasks.value[index], ...event.task };
+            tasks.value = [...tasks.value];
+          }
+        }
+      })
+      .listen('.task.deleted', (event) => {
+        console.log('[Gantt] Reverb: task.deleted', event.id);
+        tasks.value = tasks.value.filter(t => t.id !== event.id);
+        pendingChanges.value.delete(event.id);
+      })
+      .listen('.taskAssignee.added', (event) => {
+        console.log('[Gantt] Reverb: taskAssignee.added', { task_id: event.task_id, developer_id: event.developer_id });
+        const index = tasks.value.findIndex(t => t.id === event.task_id);
+        if (index !== -1) {
+          const task = tasks.value[index];
+          if (!task.assignees) task.assignees = [];
+          if (!task.assignees.includes(event.developer_id)) {
+            task.assignees = [...task.assignees, event.developer_id];
+          }
+          tasks.value[index] = { ...task };
           tasks.value = [...tasks.value];
         }
-      }
-    });
-    
-    socket.on('task:deleted', ({ id }) => {
-      console.log('[Gantt] Socket: task:deleted', id);
-      tasks.value = tasks.value.filter(t => t.id !== id);
-      pendingChanges.value.delete(id);
-    });
-    
-    socket.on('taskAssignee:added', ({ task_id, developer_id }) => {
-      console.log('[Gantt] Socket: taskAssignee:added', { task_id, developer_id });
-      const index = tasks.value.findIndex(t => t.id === task_id);
-      if (index !== -1) {
-        const task = tasks.value[index];
-        if (!task.assignees) task.assignees = [];
-        if (!task.assignees.includes(developer_id)) {
-          task.assignees = [...task.assignees, developer_id];
+      })
+      .listen('.taskAssignee.removed', (event) => {
+        console.log('[Gantt] Reverb: taskAssignee.removed', { task_id: event.task_id, developer_id: event.developer_id });
+        const index = tasks.value.findIndex(t => t.id === event.task_id);
+        if (index !== -1) {
+          const task = tasks.value[index];
+          if (Array.isArray(task.assignees)) {
+            task.assignees = task.assignees.filter(id => id !== event.developer_id);
+          }
+          tasks.value[index] = { ...task };
+          tasks.value = [...tasks.value];
         }
-        tasks.value[index] = { ...task };
-        tasks.value = [...tasks.value];
-      }
-    });
-    
-    socket.on('taskAssignee:removed', ({ task_id, developer_id }) => {
-      console.log('[Gantt] Socket: taskAssignee:removed', { task_id, developer_id });
-      const index = tasks.value.findIndex(t => t.id === task_id);
-      if (index !== -1) {
-        const task = tasks.value[index];
-        if (Array.isArray(task.assignees)) {
-          task.assignees = task.assignees.filter(id => id !== developer_id);
-        }
-        tasks.value[index] = { ...task };
-        tasks.value = [...tasks.value];
-      }
-    });
+      });
   }
   
-  function removeSocketListeners() {
-    socket.off('task:created');
-    socket.off('task:updated');
-    socket.off('task:deleted');
-    socket.off('taskAssignee:added');
-    socket.off('taskAssignee:removed');
+  function removeReverbListeners() {
+    if (echo && echo.leave) {
+      echo.leave('tasks');
+    }
   }
   
-  // INIT SOCKET
-  initSocketListeners();
+  // Alias for compatibility
+  const removeSocketListeners = removeReverbListeners;
+  
+  // INIT REVERB
+  initReverbListeners();
   
   return {
     tasks,
@@ -415,5 +486,6 @@ export const useGanttStore = defineStore('gantt', () => {
     setAutoSaveCallback,
     collapseAllPhases,
     removeSocketListeners,
+    removeReverbListeners,
   };
 });

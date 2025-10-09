@@ -83,6 +83,8 @@ export const useGitHubAuthStore = defineStore("githubAuth", () => {
       if (sessionToken) {
         localStorage.setItem("sessionToken", sessionToken);
       }
+      // Set login time for session expiry tracking
+      localStorage.setItem("loginTime", Date.now().toString());
 
       // Use response data directly (Laravel returns user info)
       user.value = {

@@ -7,8 +7,7 @@ import router from "@/router";
 import PrimeVue from "primevue/config";
 import Material from "@primeuix/themes/material";
 import ToastService from "primevue/toastservice";
-import socket from "@/utils/socket";
-import("@/utils/socketTest.js");
+import echo from "@/utils/reverb";
 
 const app = createApp(App);
 const pinia = createPinia();
@@ -21,7 +20,7 @@ app.use(PrimeVue, {
   },
 });
 app.use(ToastService);
-console.log("[Main] Initializing Socket.IO connection...");
+console.log("[Main] Initializing Laravel Reverb connection...");
 
 app.mount("#app");
 

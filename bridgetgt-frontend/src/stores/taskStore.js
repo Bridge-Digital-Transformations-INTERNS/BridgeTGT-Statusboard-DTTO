@@ -6,7 +6,7 @@ import { TASK_STATUSES } from "@/constants/common";
 import { useDeveloperStore } from "@/stores/developerStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { watch } from "vue";
-import socket from "@/utils/socket";
+import echo from "@/utils/reverb";
 import { toRaw } from "vue";
 import { formatDateForAPI } from "@/utils/ganttDates";
 
@@ -33,132 +33,122 @@ export const useTaskStore = defineStore("task", () => {
   const totalTasks = ref(0);
   const totalPages = ref(1);
 
-  //SOCKET
-  function initSocketListeners() {
-    // Remove existing listeners to prevent duplicates
-    socket.off("task:created");
-    socket.off("task:updated");
-    socket.off("task:deleted");
-    socket.off("taskAssignee:added");
-    socket.off("taskAssignee:removed");
-
-    socket.on("task:created", (task) => {
-      console.log("[TaskStore] Socket event: task:created", task);
-      // Only add if task doesn't exist and belongs to current project
-      if (currentProjectId.value && task.project_id === currentProjectId.value) {
-        if (!allTasks.value.some(t => t.id === task.id)) {
-          allTasks.value = [...allTasks.value, task];
-          console.log("[TaskStore] Task added to list");
+  //REVERB
+  function initReverbListeners() {
+    echo.channel('tasks')
+      .listen('.task.created', (event) => {
+        console.log("[TaskStore] Reverb event: task.created", event.task);
+        // Only add if task doesn't exist and belongs to current project
+        if (currentProjectId.value && event.task.project_id === currentProjectId.value) {
+          if (!allTasks.value.some(t => t.id === event.task.id)) {
+            allTasks.value = [...allTasks.value, event.task];
+            console.log("[TaskStore] Task added to list");
+          }
         }
-      }
-    });
-
-    socket.on("task:updated", (updated) => {
-      console.log("[TaskStore] Socket event: task:updated", updated);
-      const idx = allTasks.value.findIndex((t) => t.id === updated.id);
-      if (idx !== -1) {
-        // Force reactivity by creating a new object
-        allTasks.value[idx] = { ...allTasks.value[idx], ...updated };
-        // Trigger array reactivity
-        allTasks.value = [...allTasks.value];
-        console.log("[TaskStore] Task updated in list");
-      } else {
-        console.log("[TaskStore] Task not found in list:", updated.id);
-      }
-    });
-
-    socket.on("task:deleted", ({ id }) => {
-      console.log("[TaskStore] Socket event: task:deleted", id);
-      const beforeLength = allTasks.value.length;
-      allTasks.value = allTasks.value.filter((t) => t.id !== id);
-      if (beforeLength !== allTasks.value.length) {
-        console.log("[TaskStore] Task removed from list");
-      }
-    });
-
-    socket.on("taskAssignee:added", ({ task_id, developer_id }) => {
-      console.log("[TaskStore] Socket event: taskAssignee:added", { task_id, developer_id });
-      const idx = allTasks.value.findIndex((t) => t.id === task_id);
-      if (idx !== -1) {
-        const task = allTasks.value[idx];
-        if (!task.assigneeIds) task.assigneeIds = [];
-        if (!task.assigneeIds.includes(developer_id)) {
-          task.assigneeIds = [...task.assigneeIds, developer_id];
+      })
+      .listen('.task.updated', (event) => {
+        console.log("[TaskStore] Reverb event: task.updated", event.task);
+        const idx = allTasks.value.findIndex((t) => t.id === event.task.id);
+        if (idx !== -1) {
+          // Force reactivity by creating a new object
+          allTasks.value[idx] = { ...allTasks.value[idx], ...event.task };
+          // Trigger array reactivity
+          allTasks.value = [...allTasks.value];
+          console.log("[TaskStore] Task updated in list");
+        } else {
+          console.log("[TaskStore] Task not found in list:", event.task.id);
         }
-
-        if (!task.assignees) task.assignees = [];
-        const dev = developerStore.getDeveloperById(developer_id);
-        if (dev && !task.assignees.some((d) => d.id === dev.id)) {
-          task.assignees = [...task.assignees, dev];
+      })
+      .listen('.task.deleted', (event) => {
+        console.log("[TaskStore] Reverb event: task.deleted", event.id);
+        const beforeLength = allTasks.value.length;
+        allTasks.value = allTasks.value.filter((t) => t.id !== event.id);
+        if (beforeLength !== allTasks.value.length) {
+          console.log("[TaskStore] Task removed from list");
         }
+      })
+      .listen('.taskAssignee.added', (event) => {
+        console.log("[TaskStore] Reverb event: taskAssignee.added", { task_id: event.task_id, developer_id: event.developer_id });
+        const idx = allTasks.value.findIndex((t) => t.id === event.task_id);
+        if (idx !== -1) {
+          const task = allTasks.value[idx];
+          if (!task.assigneeIds) task.assigneeIds = [];
+          if (!task.assigneeIds.includes(event.developer_id)) {
+            task.assigneeIds = [...task.assigneeIds, event.developer_id];
+          }
 
-        // Force reactivity
-        allTasks.value[idx] = { ...task };
-        allTasks.value = [...allTasks.value];
-        console.log("[TaskStore] Assignee added to task");
-      }
-    });
+          if (!task.assignees) task.assignees = [];
+          const dev = developerStore.getDeveloperById(event.developer_id);
+          if (dev && !task.assignees.some((d) => d.id === dev.id)) {
+            task.assignees = [...task.assignees, dev];
+          }
 
-    socket.on("taskAssignee:removed", ({ task_id, developer_id }) => {
-      console.log("[TaskStore] Socket event: taskAssignee:removed", { task_id, developer_id });
-      const idx = allTasks.value.findIndex((t) => t.id === task_id);
-      if (idx !== -1) {
-        const task = allTasks.value[idx];
-        if (Array.isArray(task.assigneeIds)) {
-          task.assigneeIds = task.assigneeIds.filter(
-            (id) => id !== developer_id,
-          );
+          // Force reactivity
+          allTasks.value[idx] = { ...task };
+          allTasks.value = [...allTasks.value];
+          console.log("[TaskStore] Assignee added to task");
         }
-        if (Array.isArray(task.assignees)) {
-          task.assignees = task.assignees.filter(
-            (dev) => dev.id !== developer_id,
-          );
-        }
+      })
+      .listen('.taskAssignee.removed', (event) => {
+        console.log("[TaskStore] Reverb event: taskAssignee.removed", { task_id: event.task_id, developer_id: event.developer_id });
+        const idx = allTasks.value.findIndex((t) => t.id === event.task_id);
+        if (idx !== -1) {
+          const task = allTasks.value[idx];
+          if (Array.isArray(task.assigneeIds)) {
+            task.assigneeIds = task.assigneeIds.filter(
+              (id) => id !== event.developer_id,
+            );
+          }
+          if (Array.isArray(task.assignees)) {
+            task.assignees = task.assignees.filter(
+              (dev) => dev.id !== event.developer_id,
+            );
+          }
 
-        // Force reactivity
-        allTasks.value[idx] = { ...task };
-        allTasks.value = [...allTasks.value];
+          // Force reactivity
+          allTasks.value[idx] = { ...task };
+          allTasks.value = [...allTasks.value];
         console.log("[TaskStore] Assignee removed from task");
       }
     });
   }
 
-  //INIT SOCKET IF GAMITON ANG STORE
-  initSocketListeners();
+  //INIT REVERB IF GAMITON ANG STORE
+  initReverbListeners();
 
-  //FETCH TASKS ASSIGNEE
-  async function fetchTasks(page = 1) {
+  const isDataLoaded = ref(false); // Track if data has been loaded
+  const lastFetchedProjectId = ref(null); // Track which project was last fetched
+
+  //FETCH TASKS ASSIGNEE - only fetch if needed
+  async function fetchTasks(page = 1, force = false) {
     if (!currentProjectId.value) return;
+    
+    // Skip if already loaded for this project and not forced
+    if (isDataLoaded.value && 
+        lastFetchedProjectId.value === currentProjectId.value && 
+        !force) {
+      console.log('[TaskStore] Tasks already loaded for project', currentProjectId.value);
+      return;
+    }
+    
     loading.value = true;
     try {
       const sessionToken = localStorage.getItem("sessionToken");
-      // Fetch ALL tasks without pagination (use a large limit)
       const response = await api.get(
-        `/tasks/project/${currentProjectId.value}?page=1&limit=10000`,
+        `/tasks/project/${currentProjectId.value}?page=1&limit=100`,
         { headers: { "x-session-token": sessionToken } },
       );
 
       const { tasks } = response.data;
 
-      const tasksWithAssignees = await Promise.all(
-        tasks.map(async (task) => {
-          try {
-            const assigneesRes = await api.get(`/task-assignees/${task.id}`, {
-              headers: { "x-session-token": sessionToken },
-            });
-            task.assignees =
-              assigneesRes.data.developers || assigneesRes.data || [];
-          } catch (e) {
-            console.log(e)
-            task.assignees = [];
-          }
-          return task;
-        }),
-      );
-
-      allTasks.value = tasksWithAssignees;
-      // Reset to page 1 when data is fetched
+      allTasks.value = tasks.map(task => ({
+        ...task,
+        assignees: task.assignees || []
+      }));
+      
       currentPage.value = 1;
+      isDataLoaded.value = true;
+      lastFetchedProjectId.value = currentProjectId.value;
     } finally {
       loading.value = false;
     }
@@ -289,11 +279,17 @@ export const useTaskStore = defineStore("task", () => {
       delete plainTask.endDate;
     }
 
+    // Ensure project_id is set before sending
+    if (!plainTask.project_id) {
+      plainTask.project_id = currentProjectId.value;
+    }
+
     try {
+      console.log('[TaskStore] Adding task:', plainTask);
 
       const response = await api.post(
         "/tasks",
-        { ...plainTask, project_id: currentProjectId.value },
+        plainTask,
         {
           headers: {
             "x-session-token": sessionToken,
@@ -302,29 +298,18 @@ export const useTaskStore = defineStore("task", () => {
         },
       );
 
+      console.log('[TaskStore] Task created:', response.data);
       const taskId = response?.data?.id;
 
-      if (
-        taskId &&
-        Array.isArray(plainTask.assigneeIds) &&
-        plainTask.assigneeIds.length
-      ) {
-        for (const developerId of plainTask.assigneeIds) {
-          await api.post(
-            "/task-assignees",
-            { task_id: taskId, developer_id: developerId },
-            {
-              headers: {
-                "x-session-token": sessionToken,
-                "Content-Type": "application/json",
-              },
-            },
-          );
-        }
-      }
+      // Note: Assignees are handled by backend via assigneeIds in the request
+      // No need for separate API calls
       return response.data;
     } catch (err) {
       console.error("ADD TASK ERROR:", err);
+      if (err.response) {
+        console.error("Response data:", err.response.data);
+        console.error("Response status:", err.response.status);
+      }
       throw err;
     }
   }
@@ -402,7 +387,8 @@ export const useTaskStore = defineStore("task", () => {
     const currentAssigneesRes = await api.get(`/task-assignees/${taskId}`, {
       headers: { "x-session-token": sessionToken },
     });
-    const currentAssignees = currentAssigneesRes.data || [];
+    // Handle paginated response
+    const currentAssignees = currentAssigneesRes.data.assignees || currentAssigneesRes.data || [];
     const currentIds = currentAssignees.map((dev) => dev.id);
     //IF ADD OR REMOVE
     const newIds = patch.assigneeIds || [];
@@ -429,11 +415,13 @@ export const useTaskStore = defineStore("task", () => {
       const updatedAssigneesRes = await api.get(`/task-assignees/${taskId}`, {
         headers: { "x-session-token": sessionToken },
       });
+      // Handle paginated response
+      const updatedAssignees = updatedAssigneesRes.data.assignees || updatedAssigneesRes.data || [];
 
       allTasks.value[taskIndex] = {
         ...allTasks.value[taskIndex],
         ...patch,
-        assignees: updatedAssigneesRes.data || [],
+        assignees: updatedAssignees,
         assigneeIds: newIds,
       };
     }
@@ -477,7 +465,7 @@ export const useTaskStore = defineStore("task", () => {
     totalTasks,
     totalPages: computed(() => pagination.value.totalPages),
     pagination,
-    initSocketListeners,
+    initReverbListeners,
     updateTaskWithAssignees,
     fetchTasks,
     addTask,
